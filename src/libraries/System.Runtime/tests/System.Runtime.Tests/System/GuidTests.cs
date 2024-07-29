@@ -314,7 +314,48 @@ namespace System.Tests
                 Assert.Equal(Guid.Empty, result);
             }
         }
-        
+
+        [Theory]
+        [MemberData(nameof(GuidStrings_Valid_TestData))]
+        public static void Parse_Utf8_ValidInput_Success(string input, string format, Guid expected)
+        {
+            //"use" parameter to avoid unused param error
+            //can't remove it from signature because the test data has it
+            System.Runtime.CompilerServices.Unsafe.IsNullRef(ref format);
+
+            byte[] utf8Bytes = Encoding.UTF8.GetBytes(input);
+
+            Assert.Equal(expected, Guid.Parse(utf8Bytes));
+
+            Guid result;
+
+            Assert.True(Guid.TryParse(utf8Bytes, out result));
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [MemberData(nameof(GuidStrings_Invalid_TestData))]
+        public static void Parse_Utf8_InvalidInput_Fails(string input, Type exceptionType)
+        {
+            if (input == null)
+            {
+                return;
+            }
+
+            // Overflow exceptions throw as format exceptions in Parse
+            if (exceptionType.Equals(typeof(OverflowException)))
+            {
+                exceptionType = typeof(FormatException);
+            }
+
+            byte[] utf8Bytes = Encoding.UTF8.GetBytes(input);
+
+            Assert.Throws(exceptionType, () => Guid.Parse(utf8Bytes));
+
+            Assert.False(Guid.TryParse(utf8Bytes, out Guid result));
+            Assert.Equal(Guid.Empty, result);
+        }
+
         public static IEnumerable<object[]> CompareTo_TestData()
         {
             yield return new object[] { s_testGuid, s_testGuid, 0 };
