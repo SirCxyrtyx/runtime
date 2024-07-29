@@ -484,32 +484,31 @@ namespace System
             }
         }
 
-        //private static bool TryParseGuid(ReadOnlySpan<char> guidString, ref GuidResult result)
-        //{
-        //    guidString = guidString.Trim(); // Remove whitespace from beginning and end
+        private static bool TryParseGuid(ReadOnlySpan<char> guidString, ref GuidResult result)
+        {
+            guidString = guidString.Trim(); // Remove whitespace from beginning and end
 
-        //    if (guidString.Length < 32) // Minimal length we can parse ('N' format)
-        //    {
-        //        result.SetFailure(ParseFailure.Format_GuidUnrecognized);
-        //        return false;
-        //    }
+            if (guidString.Length < 32) // Minimal length we can parse ('N' format)
+            {
+                result.SetFailure(ParseFailure.Format_GuidUnrecognized);
+                return false;
+            }
 
-        //    return (guidString[0]) switch
-        //    {
-        //        '(' => TryParseExactP(guidString, ref result),
-        //        '{' => guidString[9] == '-' ?
-        //                TryParseExactB(guidString, ref result) :
-        //                TryParseExactX(guidString, ref result),
-        //        _ => guidString[8] == '-' ?
-        //                TryParseExactD(guidString, ref result) :
-        //                TryParseExactN(guidString, ref result),
-        //    };
-        //}
-
-        private static bool TryParseGuid<TChar>(ReadOnlySpan<TChar> guidString, ref GuidResult result) where TChar : unmanaged, IUtfChar<TChar>
+            return (guidString[0]) switch
+            {
+                '(' => TryParseExactP(guidString, ref result),
+                '{' => guidString[9] == '-' ?
+                        TryParseExactB(guidString, ref result) :
+                        TryParseExactX(guidString, ref result),
+                _ => guidString[8] == '-' ?
+                        TryParseExactD(guidString, ref result) :
+                        TryParseExactN(guidString, ref result),
+            };
+        }
+        private static bool TryParseGuid(ReadOnlySpan<byte> guidString, ref GuidResult result)
         {
             // Remove whitespace from beginning and end
-            if (guidString.Length != 0 && (IsWhite(TChar.CastToUInt32(guidString[0])) || IsWhite(TChar.CastToUInt32(guidString[^1]))))
+            if (guidString.Length != 0 && (IsWhite(guidString[0]) || IsWhite(guidString[^1])))
             {
                 guidString = Trim(guidString);
             }
@@ -520,23 +519,24 @@ namespace System
                 return false;
             }
 
-            if (guidString[0] == TChar.CastFrom('('))
+            return (guidString[0]) switch
             {
-                return TryParseExactP(guidString, ref result);
-            }
-            if (guidString[0] == TChar.CastFrom('{'))
-            {
-                return guidString[9] == TChar.CastFrom('-') ? TryParseExactB(guidString, ref result) : TryParseExactX(guidString, ref result);
-            }
-            return guidString[8] == TChar.CastFrom('-') ? TryParseExactD(guidString, ref result) : TryParseExactN(guidString, ref result);
+                (byte)'(' => TryParseExactP(guidString, ref result),
+                (byte)'{' => guidString[9] == (byte)'-' ?
+                        TryParseExactB(guidString, ref result) :
+                        TryParseExactX(guidString, ref result),
+                _ => guidString[8] == (byte)'-' ?
+                        TryParseExactD(guidString, ref result) :
+                        TryParseExactN(guidString, ref result),
+            };
 
             [MethodImpl(MethodImplOptions.NoInlining)]
-            static ReadOnlySpan<TChar> Trim(ReadOnlySpan<TChar> span)
+            static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> span)
             {
                 int start = 0;
                 for (; start < span.Length; start++)
                 {
-                    if (!IsWhite(TChar.CastToUInt32(span[start])))
+                    if (!IsWhite(span[start]))
                     {
                         break;
                     }
@@ -545,7 +545,7 @@ namespace System
                 int end = span.Length - 1;
                 for (; end > start; end--)
                 {
-                    if (!IsWhite(TChar.CastToUInt32(span[end])))
+                    if (!IsWhite(span[end]))
                     {
                         break;
                     }
@@ -879,15 +879,29 @@ namespace System
         {
             ReadOnlySpan<byte> lookup = HexConverter.CharToHexLookup;
             Debug.Assert(lookup.Length == 256);
+            Debug.Assert(ch1 is byte or char);
 
-            int upper = (sbyte)lookup[byte.CreateTruncating(ch1)];
-            int lower = (sbyte)lookup[byte.CreateTruncating(ch2)];
-            int result = (upper << 4) | lower;
+            if (ch1 is char c1 && ch2 is char c2)
+            {
+                int upper = (sbyte)lookup[(byte)c1];
+                int lower = (sbyte)lookup[(byte)c2];
+                int result = (upper << 4) | lower;
 
-            // Result will be negative if ch1 or/and ch2 are greater than 0xFF
-            result = (ch1 | ch2) >> 8 == TChar.Zero ? result : -1;
-            invalidIfNegative |= result;
-            return (byte)result;
+                // Result will be negative if ch1 or/and ch2 are greater than 0xFF
+                result = (c1 | c2) >> 8 == 0 ? result : -1;
+                invalidIfNegative |= result;
+                return (byte)result;
+            }
+            else
+            {
+                byte b1 = byte.CreateTruncating(ch1);
+                byte b2 = byte.CreateTruncating(ch2);
+                int upper = (sbyte)lookup[b1];
+                int lower = (sbyte)lookup[b2];
+                int result = (upper << 4) | lower;
+                invalidIfNegative |= result;
+                return (byte)result;
+            }
         }
 
         private static bool TryParseHex<TChar>(ReadOnlySpan<TChar> guidString, out ushort result, ref bool overflow) where TChar : unmanaged, IUtfChar<TChar>
