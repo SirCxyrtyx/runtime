@@ -267,7 +267,7 @@ namespace System
             ArgumentNullException.ThrowIfNull(g);
 
             var result = new GuidResult(GuidParseThrowStyle.All);
-            bool success = TryParseGuid(g.AsSpan(), ref result);
+            bool success = TryParseGuid(g, ref result);
             Debug.Assert(success, "GuidParseThrowStyle.All means throw on all failures");
 
             this = result.ToGuid();
@@ -507,11 +507,7 @@ namespace System
         }
         private static bool TryParseGuid(ReadOnlySpan<byte> guidString, ref GuidResult result)
         {
-            // Remove whitespace from beginning and end
-            if (guidString.Length != 0 && (IsWhite(guidString[0]) || IsWhite(guidString[^1])))
-            {
-                guidString = Trim(guidString);
-            }
+            guidString = guidString.TrimUtf8(); // Remove whitespace from beginning and end
 
             if (guidString.Length < 32) // Minimal length we can parse ('N' format)
             {
@@ -529,29 +525,6 @@ namespace System
                         TryParseExactD(guidString, ref result) :
                         TryParseExactN(guidString, ref result),
             };
-
-            [MethodImpl(MethodImplOptions.NoInlining)]
-            static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> span)
-            {
-                int start = 0;
-                for (; start < span.Length; start++)
-                {
-                    if (!IsWhite(span[start]))
-                    {
-                        break;
-                    }
-                }
-
-                int end = span.Length - 1;
-                for (; end > start; end--)
-                {
-                    if (!IsWhite(span[end]))
-                    {
-                        break;
-                    }
-                }
-                return span.Slice(start, end - start + 1);
-            }
         }
 
         private static bool TryParseExactB<TChar>(ReadOnlySpan<TChar> guidString, ref GuidResult result) where TChar : unmanaged, IUtfChar<TChar>
@@ -879,29 +852,17 @@ namespace System
         {
             ReadOnlySpan<byte> lookup = HexConverter.CharToHexLookup;
             Debug.Assert(lookup.Length == 256);
-            Debug.Assert(ch1 is byte or char);
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(char));
+            int upper = (sbyte)lookup[byte.CreateTruncating(ch1)];
+            int lower = (sbyte)lookup[byte.CreateTruncating(ch2)];
+            int result = (upper << 4) | lower;
 
-            if (ch1 is char c1 && ch2 is char c2)
-            {
-                int upper = (sbyte)lookup[(byte)c1];
-                int lower = (sbyte)lookup[(byte)c2];
-                int result = (upper << 4) | lower;
-
-                // Result will be negative if ch1 or/and ch2 are greater than 0xFF
-                result = (c1 | c2) >> 8 == 0 ? result : -1;
-                invalidIfNegative |= result;
-                return (byte)result;
-            }
-            else
-            {
-                byte b1 = byte.CreateTruncating(ch1);
-                byte b2 = byte.CreateTruncating(ch2);
-                int upper = (sbyte)lookup[b1];
-                int lower = (sbyte)lookup[b2];
-                int result = (upper << 4) | lower;
-                invalidIfNegative |= result;
-                return (byte)result;
-            }
+            uint c1 = TChar.CastToUInt32(ch1);
+            uint c2 = TChar.CastToUInt32(ch2);
+            // Result will be negative if ch1 or/and ch2 are greater than 0xFF
+            result = (c1 | c2) >> 8 == 0 ? result : -1;
+            invalidIfNegative |= result;
+            return (byte)result;
         }
 
         private static bool TryParseHex<TChar>(ReadOnlySpan<TChar> guidString, out ushort result, ref bool overflow) where TChar : unmanaged, IUtfChar<TChar>
