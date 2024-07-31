@@ -268,7 +268,7 @@ namespace System
             ArgumentNullException.ThrowIfNull(g);
 
             var result = new GuidResult(GuidParseThrowStyle.All);
-            bool success = TryParseGuid(g, ref result);
+            bool success = TryParseGuid(g.AsSpan(), ref result);
             Debug.Assert(success, "GuidParseThrowStyle.All means throw on all failures");
 
             this = result.ToGuid();
@@ -484,48 +484,32 @@ namespace System
                 return false;
             }
         }
-
-        private static bool TryParseGuid(ReadOnlySpan<char> guidString, ref GuidResult result)
+        private static bool TryParseGuid<TChar>(ReadOnlySpan<TChar> guidString, ref GuidResult result) where TChar : unmanaged, IUtfChar<TChar>
         {
-            guidString = guidString.Trim(); // Remove whitespace from beginning and end
+            guidString = Number.SpanTrim(guidString); // Remove whitespace from beginning and end
 
             if (guidString.Length < 32) // Minimal length we can parse ('N' format)
             {
                 result.SetFailure(ParseFailure.Format_GuidUnrecognized);
                 return false;
             }
-
-            return (guidString[0]) switch
+            if (guidString[0] == TChar.CastFrom('('))
             {
-                '(' => TryParseExactP(guidString, ref result),
-                '{' => guidString[9] == '-' ?
-                        TryParseExactB(guidString, ref result) :
-                        TryParseExactX(guidString, ref result),
-                _ => guidString[8] == '-' ?
-                        TryParseExactD(guidString, ref result) :
-                        TryParseExactN(guidString, ref result),
-            };
-        }
-        private static bool TryParseGuid(ReadOnlySpan<byte> guidString, ref GuidResult result)
-        {
-            guidString = guidString.TrimUtf8(); // Remove whitespace from beginning and end
-
-            if (guidString.Length < 32) // Minimal length we can parse ('N' format)
-            {
-                result.SetFailure(ParseFailure.Format_GuidUnrecognized);
-                return false;
+                return TryParseExactP(guidString, ref result);
             }
-
-            return (guidString[0]) switch
+            if (guidString[0] == TChar.CastFrom('{'))
             {
-                (byte)'(' => TryParseExactP(guidString, ref result),
-                (byte)'{' => guidString[9] == (byte)'-' ?
-                        TryParseExactB(guidString, ref result) :
-                        TryParseExactX(guidString, ref result),
-                _ => guidString[8] == (byte)'-' ?
-                        TryParseExactD(guidString, ref result) :
-                        TryParseExactN(guidString, ref result),
-            };
+                if (guidString[9] == TChar.CastFrom('-'))
+                {
+                    return TryParseExactB(guidString, ref result);
+                }
+                return TryParseExactX(guidString, ref result);
+            }
+            if (guidString[8] == TChar.CastFrom('-'))
+            {
+                return TryParseExactD(guidString, ref result);
+            }
+            return TryParseExactN(guidString, ref result);
         }
 
         private static bool TryParseExactB<TChar>(ReadOnlySpan<TChar> guidString, ref GuidResult result) where TChar : unmanaged, IUtfChar<TChar>
@@ -853,7 +837,6 @@ namespace System
         {
             ReadOnlySpan<byte> lookup = HexConverter.CharToHexLookup;
             Debug.Assert(lookup.Length == 256);
-            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(char));
             int upper = (sbyte)lookup[byte.CreateTruncating(ch1)];
             int lower = (sbyte)lookup[byte.CreateTruncating(ch2)];
             int result = (upper << 4) | lower;
@@ -998,8 +981,8 @@ namespace System
 
                     if (!Rune.IsWhiteSpace(current))
                     {
-                        current.TryEncodeToUtf8(destUtf8Span.Slice(newLength), out int bytesWritten);
-                        newLength += bytesWritten;
+                        srcUtf8Span.Slice(i, bytesConsumed).CopyTo(destUtf8Span.Slice(newLength));
+                        newLength += bytesConsumed;
                     }
                     i += bytesConsumed;
                 }
