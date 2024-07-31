@@ -12,6 +12,7 @@ using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.Arm;
 using System.Runtime.Intrinsics.X86;
 using System.Runtime.Versioning;
+using System.Text;
 
 namespace System
 {
@@ -697,7 +698,7 @@ namespace System
 
             // Eat all of the whitespace.  Unlike the other forms, X allows for any amount of whitespace
             // anywhere, not just at the beginning and end.
-            guidString = EatAllWhitespace(guidString);
+            guidString = EatAllWhitespace(guidString, ref result);
 
             // Check for leading '{'
             if (guidString.Length == 0 || guidString[0] != TChar.CastFrom('{'))
@@ -918,45 +919,100 @@ namespace System
             return true;
         }
 
-        private static ReadOnlySpan<TChar> EatAllWhitespace<TChar>(ReadOnlySpan<TChar> str) where TChar : unmanaged, IUtfChar<TChar>
+        private static ReadOnlySpan<TChar> EatAllWhitespace<TChar>(ReadOnlySpan<TChar> str, scoped ref GuidResult result) where TChar : unmanaged, IUtfChar<TChar>
         {
-            // Find the first whitespace character.  If there is none, just return the input.
-            int i;
-            for (i = 0; i < str.Length && !IsWhite(TChar.CastToUInt32(str[i])); i++) ;
-            if (i == str.Length)
+            if (typeof(TChar) == typeof(char))
             {
-                return str;
-            }
-
-            // There was at least one whitespace.  Copy over everything prior to it to a new array.
-            var chArr = new TChar[str.Length];
-            int newLength = 0;
-            if (i > 0)
-            {
-                newLength = i;
-                str.Slice(0, i).CopyTo(chArr);
-            }
-
-            // Loop through the remaining chars, copying over non-whitespace.
-            for (; i < str.Length; i++)
-            {
-                TChar c = str[i];
-                if (!IsWhite(TChar.CastToUInt32(c)))
+                ReadOnlySpan<char> charSpan = Unsafe.BitCast<ReadOnlySpan<TChar>, ReadOnlySpan<char>>(str);
+                // Find the first whitespace character. If there is none, just return the input.
+                int i;
+                for (i = 0; i < charSpan.Length && !char.IsWhiteSpace(charSpan[i]); i++) ;
+                if (i == charSpan.Length)
                 {
-                    chArr[newLength++] = c;
+                    return str;
                 }
-            }
 
-            // Return the string with the whitespace removed.
-            return new ReadOnlySpan<TChar>(chArr, 0, newLength);
+                // There was at least one whitespace. Copy over everything prior to it to a new array.
+                var chArr = new char[charSpan.Length];
+                int newLength = 0;
+                if (i > 0)
+                {
+                    newLength = i;
+                    charSpan.Slice(0, i).CopyTo(chArr);
+                }
+
+                // Loop through the remaining chars, copying over non-whitespace.
+                for (; i < charSpan.Length; i++)
+                {
+                    char c = charSpan[i];
+                    if (!char.IsWhiteSpace(c))
+                    {
+                        chArr[newLength++] = c;
+                    }
+                }
+
+                // Return the string with the whitespace removed.
+                return Unsafe.BitCast<ReadOnlySpan<char>, ReadOnlySpan<TChar>>(new ReadOnlySpan<char>(chArr, 0, newLength));
+            }
+            else
+            {
+                Debug.Assert(typeof(TChar) == typeof(byte));
+
+                ReadOnlySpan<byte> srcUtf8Span = Unsafe.BitCast<ReadOnlySpan<TChar>, ReadOnlySpan<byte>>(str);
+                // Find the first whitespace character.  If there is none, just return the input.
+                int i = 0;
+                while (i < srcUtf8Span.Length)
+                {
+                    // in the unlikely event that there is invalid utf8, the parse will fail later anyways
+                    _ = Rune.DecodeFromUtf8(srcUtf8Span.Slice(i), out Rune current, out int bytesConsumed);
+
+                    if (!Rune.IsWhiteSpace(current))
+                    {
+                        break;
+                    }
+                    i += bytesConsumed;
+                }
+                if (i == srcUtf8Span.Length)
+                {
+                    return str;
+                }
+
+                // There was at least one whitespace. Copy over everything prior to it to a new array.
+                Span<byte> destUtf8Span = new byte[srcUtf8Span.Length];
+                int newLength = 0;
+                if (i > 0)
+                {
+                    newLength = i;
+                    srcUtf8Span.Slice(0, i).CopyTo(destUtf8Span);
+                }
+
+                // Loop through the remaining chars, copying over non-whitespace.
+                while (i < srcUtf8Span.Length)
+                {
+                    // Unlike the previous loop, invalid utf8 can't be ignored here
+                    if (Rune.DecodeFromUtf8(srcUtf8Span.Slice(i), out Rune current, out int bytesConsumed) != Buffers.OperationStatus.Done)
+                    {
+                        result.SetFailure(ParseFailure.Format_GuidInvalidChar);
+                        return ReadOnlySpan<TChar>.Empty;
+                    }
+
+                    if (!Rune.IsWhiteSpace(current))
+                    {
+                        current.TryEncodeToUtf8(destUtf8Span.Slice(newLength), out int bytesWritten);
+                        newLength += bytesWritten;
+                    }
+                    i += bytesConsumed;
+                }
+
+                // Return the string with the whitespace removed.
+                return Unsafe.BitCast<ReadOnlySpan<byte>, ReadOnlySpan<TChar>>(destUtf8Span.Slice(0, newLength));
+            }
         }
 
         private static bool IsHexPrefix<TChar>(ReadOnlySpan<TChar> str, int i) where TChar : unmanaged, IUtfChar<TChar> =>
             i + 1 < str.Length &&
             str[i] == TChar.CastFrom('0') &&
             (str[i + 1] | TChar.CastFrom(0x20)) == TChar.CastFrom('x');
-
-        private static bool IsWhite(uint ch) => (ch == 0x20) || ((ch - 0x09) <= (0x0D - 0x09));
 
         // Returns an unsigned byte array containing the GUID.
         public byte[] ToByteArray()

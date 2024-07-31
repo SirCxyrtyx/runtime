@@ -326,10 +326,14 @@ namespace System.Tests
             byte[] utf8Bytes = Encoding.UTF8.GetBytes(input);
 
             Assert.Equal(expected, Guid.Parse(utf8Bytes));
+            Assert.Equal(expected, Guid.Parse(utf8Bytes, null));
 
             Guid result;
 
             Assert.True(Guid.TryParse(utf8Bytes, out result));
+            Assert.Equal(expected, result);
+
+            Assert.True(Guid.TryParse(utf8Bytes, null, out result));
             Assert.Equal(expected, result);
         }
 
@@ -351,8 +355,14 @@ namespace System.Tests
             byte[] utf8Bytes = Encoding.UTF8.GetBytes(input);
 
             Assert.Throws(exceptionType, () => Guid.Parse(utf8Bytes));
+            Assert.Throws(exceptionType, () => Guid.Parse(utf8Bytes, null));
 
-            Assert.False(Guid.TryParse(utf8Bytes, out Guid result));
+            Guid result;
+
+            Assert.False(Guid.TryParse(utf8Bytes, out result));
+            Assert.Equal(Guid.Empty, result);
+
+            Assert.False(Guid.TryParse(utf8Bytes, null, out result));
             Assert.Equal(Guid.Empty, result);
         }
 
@@ -546,7 +556,7 @@ namespace System.Tests
             yield return new object[] { "+0Xddddd-+0Xd-+0Xd-+0Xd-+0Xddddddddd", "D", Guid.Parse("000ddddd-000d-000d-000d-000ddddddddd") };
 
             yield return new object[] { "{a8a110d5-fc49-43c5-bf46-802db8f843ff}", "B", s_testGuid };
-            yield return new object[] { "  \r \n \t {a8a110d5-fc49-43c5-bf46-802db8f843ff}   \r \n \t  ", "B", s_testGuid };
+            yield return new object[] { "  \r \n \t {a8a110d5-fc49-43c5-bf46-802db8f843ff} \u2003  \r \n \t  ", "B", s_testGuid };
 
             yield return new object[] { "{00000000-0000-0000-0000-000000000000}", "B", Guid.Empty };
             yield return new object[] { "{FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF}", "B", s_fullGuid };
@@ -557,7 +567,7 @@ namespace System.Tests
             yield return new object[] { "{+0Xddddd-+0Xd-+0Xd-+0Xd-+0Xddddddddd}", "B", Guid.Parse("000ddddd-000d-000d-000d-000ddddddddd") };
 
             yield return new object[] { "(a8a110d5-fc49-43c5-bf46-802db8f843ff)", "P", s_testGuid };
-            yield return new object[] { "  \r \n \t (a8a110d5-fc49-43c5-bf46-802db8f843ff)   \r \n \t  ", "P", s_testGuid };
+            yield return new object[] { "  \r \u3000 \n \t (a8a110d5-fc49-43c5-bf46-802db8f843ff)   \r \n \t  ", "P", s_testGuid };
 
             yield return new object[] { "(00000000-0000-0000-0000-000000000000)", "P", Guid.Empty };
             yield return new object[] { "(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF)", "P", s_fullGuid };
@@ -568,7 +578,7 @@ namespace System.Tests
             yield return new object[] { "(+0Xddddd-+0Xd-+0Xd-+0Xd-+0Xddddddddd)", "P", Guid.Parse("000ddddd-000d-000d-000d-000ddddddddd") };
 
             yield return new object[] { "{0xa8a110d5,0xfc49,0x43c5,{0xbf,0x46,0x80,0x2d,0xb8,0xf8,0x43,0xff}}", "X", s_testGuid };
-            yield return new object[] { " { 0 x a 8\t a 1 1 0 d 5 , 0 x f c 4\r 9 , 0 x 4 3 c 5 , { 0 x b f , 0 x 4 6 , 0 x 8 0 , 0\n x 2 d , 0 x b 8 , 0 x f 8 , 0 x 4 3 , 0 x f f } }   ", "X", s_testGuid };
+            yield return new object[] { " { 0 x a 8\t a 1 1 0 d 5 , 0 x f c 4\r 9 , 0 x 4 3 c 5 , { \u3000 0 x b f , 0 x 4 6 , 0 x 8 0 , 0\n x 2 d , 0 x b 8 , 0 x f 8 , 0 x 4 3 , 0 x f f } }   ", "X", s_testGuid };
 
             yield return new object[] { "{0x0,0x0,0x0,{0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0}}", "X", Guid.Empty };
             yield return new object[] { "{0xFFFFFFFF,0xFFFF,0xFFFF,{0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}}", "X", s_fullGuid };
